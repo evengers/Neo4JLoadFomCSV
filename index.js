@@ -9,7 +9,8 @@ sudo /etc/init.d/neo4j-service restart
 */
 
 
-
+var neo4j = require('node-neo4j');
+var neodb = new neo4j('http://localhost:7474');
 
 var str2json = require ('string-to-json');
 var extend = require('extend');
@@ -35,10 +36,11 @@ var saveCtr = 0;
 var tmpObj={};
 
 ev.on('customEvent', function (data, fn) {
-    
+    console.log ("this data just in:" ,data);
     var tmpAr = data.split(":");
     tmpAr[0]= S(tmpAr[0]).trim().s;
     tmpAr[1]= S(tmpAr[1]).trim().s;
+    addLabelToThis(tmpAr[1],tmpAr[0]);//Works??
     if (tmpAr[0] == 'leiID') tmpObj.leiID = tmpAr[1];
     if (tmpAr[0] == 'countryID') tmpObj.countryID = tmpAr[1];
     if (tmpAr[0] == 'cityID') tmpObj.cityID = tmpAr[1];
@@ -106,57 +108,51 @@ var defaultOptions = {
 */
 
 
+function addLabelToThis(nodeID, aLabel) {
 
-function cypherThis(req, reply) {
+var selfProperty = nodeID;
+// just adding the label 
 
-//passalong the query from client to Neo4j
- var thequery = req.payload.nequery;
- var decodedQueryStr = decodeURIComponent(thequery);
+ var theurl = 'http://localhost:7474/db/data/node/'+ selfProperty + '/labels';
 
-decodedQueryStr == "test";
-// reply({"starting query": decodedQueryStr});
+//just checking on the labels
+co(function* () {
+  var result = yield request({
+    headers: {"Content-Type" : "application/json"},
+    uri: theurl,
+    method: 'POST',
+    body: aLabel
+  });
 
-if (decodedQueryStr == "test") {
-      var proto = [
-                   "match n",
-                   "with n",                
-                   "return count(n)",
-                   ];
-     decodedQueryStr = proto.join('\n');
-     //console.log("testing with ... ", decodedQueryStr);
-} 
 
-var testbody = {
-  "key" : "cityCountry",
-  "value" : "Peter",
-  "properties" : {
-    "name" : "Peter",
-    "sequence" : 2
-  }
+//just checking on the labels
+
+  var result = yield request({
+    headers: {"Content-Type" : "application/json"},
+    uri: theurl,
+    method: 'GET'
+  });
+  var response = result;
+  var body = result.body;
+ console.log('the labels Body: ', body);
+})();
+
 };
 
 
 
+function cypherThis(withLabel, indexKeyValandOtherPrams) {
 
-//the body parameter takes string or buffer see https://github.com/mikeal/request/blob/master/README.md
-
-//var bodyAsStr = JSON.stringify({"query": "match n\nwith n\nreturn count(n)"});
-
-
-decodedQueryStr = testbody;
-var bodyAsObj = {"query": decodedQueryStr};
-
-var bodyAsObj = {"key": "somekey", "value": "somevalue",   "name" : "PeterThe Great", "sequence" : 2
-};
+var bodyAsObj = indexKeyValandOtherPrams;
  var bodyAsStr = JSON.stringify(bodyAsObj); 
 
-
+var thelabel = withLabel;
 
 co(function* () {
-  var theurl = 'http://localhost:7474/db/data/cypher';
+ 
   var body = bodyAsStr;
 
-theurl = 'http://localhost:7474/db/data/index/node/CITY?uniqueness=get_or_create';
+ var theurl = 'http://localhost:7474/db/data/index/node/'+ thelabel + '?uniqueness=get_or_create';
 
 
   var result = yield request({
@@ -180,18 +176,249 @@ theurl = 'http://localhost:7474/db/data/index/node/CITY?uniqueness=get_or_create
   console.log('Body: ', body);
   console.log('the ID: ', selfProperty);
 
+
+
+  ev.emit('customEvent', "testid:"+selfProperty, function(){});
+  
   //reply (body);
 })();
+  
+};
+
+function stateMe(aStr) {
+var useEm = {
+statements: [{statement: aStr, parameters: {props: {}}}]};
+return useEm;
+};
+
+function fireTransaction(theStatements) {
+
+//start with the first statement
+var useEm = stateMe(theStatements[0]);
+var transactionID;
+
+neodb.beginTransaction(useEm, function (err, result){ 
+      if (err) { 
+             console.log ("got this error on transaction", err);
+         }else{
+       console.log(result);
+       transactionID = result._id;
+          //add the rest of the statements
+          var len = theStatements.length;
+              for (var i=1; i<len; i++){
+              var useEm = stateMe(theStatements[i]);
+              console.log ("adding this statement to transaction", useEm);
+              neodb.addStatementsToTransaction(transactionID, useEm, function  (err, result) { 
+ if (err) console.log ("got this error adding statement", err, "  ", useEm);
+             });
+              }//end for loop
+
+          neodb.commitTransaction(transactionID, function (err, result){ 
+             if (err) console.log ("got this error on commit", err);
+             console.log(result);
+            ee.emit("relationsBuilt");
+            })
+       }//end if
+    })//end beginTrans... 
 
 };
 
 
+function fireTransactionX(theStatements) {
+//console.log ("sending transaction");
+var bodyAsObj = {};
+bodyAsObj.statements = theStatements;
+
+var tmpStr = JSON.stringify(bodyAsObj);
+bodyAsObj = JSON.parse(tmpStr);
+console.log (bodyAsObj);
+
+var bodyAsStr = JSON.stringify(bodyAsObj); 
+
+//console.log("the strinigfied one .... ",  bodyAsStr);
+
+
+/*
+
+var thelabel = 'CITY';
+var bodyAsObj = { "statements" : [ {
+      "statement" : "CREATE (n {props}) RETURN n", 
+      "parameters" : { 
+         "props" : { 
+            "name": "My Node" 
+               } 
+             }
+            } ] 
+     };
+ 
+var bodyAsObj = { "statements" : [ {
+      "statement" : 'MERGE (n:Page { url: "http://www.neo4j.org" })', 
+"statement1" : 'MERGE (s:StyleSheet { url: "http://www.neo4j.org/styles/main.css" })',
+"statement2" : 'MERGE (n)-[:CONTAINS_STYLESHEET]->(s)',
+"statement3" : 'RETURN *',
+      "parameters" : { 
+         "props" : { 
+            "name": "My Node" 
+               } 
+             }
+            } ] 
+     };
+*/
+
+
+
+//NO COMMIT HERE 
+co(function* () {
+  var theurl = 'http://localhost:7474/db/data/transaction';
+  var body = bodyAsStr;
+
+  var result = yield request({
+    headers: {"Content-Type" : "application/json"},
+    uri: theurl,
+    method: 'POST',
+    //body: testbody
+    body: bodyAsStr
+  });
+ 
+var response = result;
+var body = result.body;
+var anObj = JSON.parse(body);
+var thecommiturl = anObj.commit;
+
+
+var errStr = anObj.errors;
+var numOfError =1;
+if (typeof errstr == "undefined") numOfError =0;
+  console.log('test this Body just num of errors : ', numOfError);
+  if (numOfError != 0) {
+          logRejects ("line: " + ctr + "label prob ");
+          console.log('here are the f... errors : ', errStr);
+         }else{
+             //since it seemed to work .... commit it
+             console.log("comit url",thecommiturl);
+                 var result = yield request({
+                      headers: {"Content-Type" : "application/json"},
+                      uri: thecommiturl,
+                       method: 'POST',
+                    });
+                   var body = result.body;
+                   var anObj = JSON.parse(body);
+                   console.log(body);
+                   ee.emit("relationsBuilt");
+         };
+
+//now commit
+
+
+
+})();
+
+  
+  
+//now do the Commit
+
+ 
+
+
+
+ // var anObj = JSON.parse(body);
+//  console.log('test this Body id : ', anObj);
+//  console.log('test this Body just results : ', anObj.results);
+ // console.log('test this Body just commit : ', anObj.commit);
+
+
+
+
+};
+
+
+
+function indexThis(req, reply) {
+
+var thelabel = 'CITY';
+var bodyAsObj = {"label" : "CITY", "property_keys": ["cityCountry"]};
+ var bodyAsStr = JSON.stringify(bodyAsObj); 
+
+
+
+co(function* () {
+  var theurl = 'http://localhost:7474/db/data/schema/' + thelabel;
+  var body = bodyAsStr;
+
+  var result = yield request({
+    headers: {"Content-Type" : "application/json"},
+    uri: theurl,
+    method: 'POST',
+    //body: testbody
+    body: bodyAsStr
+  });
+
+//now get the indexes for the label ... not needed ... just checking
+ var result = yield request({
+    headers: {"Content-Type" : "application/json"},
+    uri: theurl,
+    method: 'GET',
+  });
+
+  var response = result;
+  var body = result.body;
+  console.log('Body: ', body);
+
+
+//now put a constraint on 
+theurl = theurl + "constraint/" + thelabel + "/uniqueness/";
+var bodyAsObj = {"property_keys": ["cityCountry"]};
+ var bodyAsStr = JSON.stringify(bodyAsObj); 
+
+ var result = yield request({
+    headers: {"Content-Type" : "application/json"},
+    uri: theurl,
+    method: 'POST',
+    body: bodyAsStr
+  });
+
+//get all the constraints
+ var result = yield request({
+    headers: {"Content-Type" : "application/json"},
+    uri: theurl,
+    method: 'GET',
+  });
+  var response = result;
+  var body = result.body;
+  console.log('These constraints are on Body: ', body);
+
+
+
+
+ /*
+  var tmpStore=JSON.parse(body);
+  var tmpStore = Lazy(tmpStore).values();
+  var anArray = Lazy(tmpStore).toArray();
+  var last = anArray.length -1;
+  var tmpStore  = anArray[last].split("/");
+  var last = tmpStore.length -1;
+  var selfProperty = tmpStore[last];
+ 
+  console.log('Body: ', body);
+  console.log('the ID: ', selfProperty);
+  ev.emit('customEvent', "testid:"+selfProperty, function(){});
+  */
+  
+})();
+  
+};
+
+
+
+
+
 var req = {"payload" : "test"}; var reply = null;
-cypherThis(req, reply);
+var indexKeyValandOtherPrams = {"key" : "countryCode",
+                    "value" : "US",
+                     "datatype" : "testdata"};
 
-
-
-
+// EXAMPLE cypherThis("COUNTRY", indexKeyValandOtherPrams);
+// EXAMPLE  indexThis(null,null);
 
 
 var fs = require('fs-extra'); //var fs = require('fs')
@@ -215,6 +442,77 @@ db.index.createIfNone('COUNTRY', 'countryCode', function(err, index) {
 db.index.createIfNone('CITY', 'cityCountry', function(err, index) {
   console.log(index); // -> { label: 'Person', { property_keys: ['name'] }
 });
+
+function stringsNoKeyQuotes (anObj){
+  //neo statements seem to die if quotes on key so JSON.stringify does not work ... this function solves that by returning string 
+  var aStr ="{";
+   Object.keys(anObj).forEach(function(key){
+      var value = anObj[key]; 
+      aStr = aStr + key+':"'+ value + '", ';
+   });
+    aStr = S(aStr).trim().s;
+    aStr = S(aStr).chompRight(',').s;
+    aStr = aStr + "}";
+  return aStr;
+  };
+
+function populateStatementsXX(inmapped){
+
+var cityparam = stringsNoKeyQuotes(mapped.city);
+var hqcityparam = stringsNoKeyQuotes(mapped.hqcity);
+var countryparam = stringsNoKeyQuotes(mapped.country);
+var hqcountryparam = stringsNoKeyQuotes(mapped.hqcountry);
+var cityparam = stringsNoKeyQuotes(mapped.city);
+var leiparam = stringsNoKeyQuotes(mapped.lei);
+
+
+var theStatements = {
+     statements: [
+     {savecity : "MERGE (ci:CITY "+ cityparam +" )"},
+     {savecountry : "MERGE (co:COUNTRY "+ countryparam +" )"},
+     {savelei : "MERGE (le:LEI "+ leiparam +")"},
+     {savehqcity : "MERGE (hci:CITY "+ hqcityparam +")"},
+     {savehqcountry : "MERGE (hco:COUNTRY "+ hqcountryparam +")"},
+     {rcitycountry : "MERGE (ci)-[:IN_COUNTRY]->(co)"},
+     {rleicity : "MERGE (le)-[:IN_CITY]->(ci)"},
+     {rleicountry : "MERGE (le)-[:IN_COUNTRY]->(co)"},
+     {rleihqcity : "MERGE (le)-[:IN_CITY]->(hci)"},
+     {rleihqcountry : "MERGE (le)-[:IN_COUNTRY]->(hco)"},
+     {theEnd : "RETURN *"}
+                  ]};
+
+    fireTransaction(theStatements);
+};
+
+
+function populateStatements(inmapped){
+
+var cityparam = stringsNoKeyQuotes(mapped.city);
+var hqcityparam = stringsNoKeyQuotes(mapped.hqcity);
+var countryparam = stringsNoKeyQuotes(mapped.country);
+var hqcountryparam = stringsNoKeyQuotes(mapped.hqcountry);
+var cityparam = stringsNoKeyQuotes(mapped.city);
+var leiparam = stringsNoKeyQuotes(mapped.lei);
+
+
+var theStatements = [
+     "MERGE (ci:CITY "+ cityparam +" )",
+     "MERGE (co:COUNTRY "+ countryparam +" )",
+     "MERGE (le:LEI "+ leiparam +")",
+     "MERGE (hci:CITY "+ hqcityparam +")",
+     "MERGE (hco:COUNTRY "+ hqcountryparam +")",
+     "MERGE (ci)-[:IN_COUNTRY]->(co)",
+     "MERGE (le)-[:IN_CITY]->(ci)",
+     "MERGE (le)-[:IN_COUNTRY]->(co)",
+     "MERGE (le)-[:IN_CITY]->(hci)",
+     "MERGE (le)-[:IN_COUNTRY]->(hco)",
+     "RETURN *"];
+
+    fireTransaction(theStatements);
+};
+
+
+
 
 
 var isHeader = true;
@@ -323,7 +621,8 @@ function prepareRow() {
     // mappedFields = {};
 
      mapped=updateMapWith(csvObj,ctr); //does the mapping
-     dotheseSaves(); //save and get id for each node for each row
+     //dotheseSaves(); //save and get id for each node for each row
+     populateStatements(mapped); //*********
  //when that is complete the the relationship build starts
 };
 
