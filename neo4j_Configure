@@ -1,3 +1,10 @@
+#file is in etc/neo4j
+#see http://www.neo4j.org/graphgist?d788e117129c3730a042 for suggestions on config
+#see http://stackoverflow.com/questions/17661902/tuning-neo4j-for-performance
+#use http://neotechnology.com/calculatorv2/  to figure out size
+#also see this  http://docs.neo4j.org/chunked/stable/configuration-caches.html
+#iwas getting timeouts every 28k of cypher posts
+
 # Default values for the low-level graph engine
 #neostore.nodestore.db.mapped_memory=25M
 #neostore.relationshipstore.db.mapped_memory=50M
